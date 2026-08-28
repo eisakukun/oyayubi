@@ -138,6 +138,13 @@
   .sp.on{background:var(--shu);border-color:var(--shu);color:#fff}
 
   /* ===== 無料ぶんが終わる画面 ===== */
+  .ended{position:fixed;inset:0;z-index:46;display:none;place-items:center;text-align:center;padding:30px;
+    background:rgba(5,6,9,.96);backdrop-filter:blur(12px);max-width:520px;margin:0 auto}
+  .ended.on{display:grid;animation:cutin .35s ease-out}
+  @keyframes cutin{0%{opacity:0}100%{opacity:1}}
+  .ended .cut{font-size:44px;color:var(--shu);margin-bottom:10px;opacity:.85}
+  .ended h2{font-size:20px;margin-bottom:10px}
+  .ended p{font-size:13px;color:var(--dim);line-height:1.95;margin-bottom:20px}
   .wall{position:fixed;inset:0;z-index:45;display:none;place-items:center;text-align:center;padding:30px;
     background:rgba(7,8,11,.93);backdrop-filter:blur(10px);max-width:520px;margin:0 auto}
   .wall.on{display:grid}
@@ -173,7 +180,8 @@
       いきなり顔は出ません。<br>
       ふたりで親指を <b>7秒</b> 合わせられたら、顔が<b>モザイク</b>で出る。<br>
       そこから <b>5分</b> 話すあいだに、モザイクは少しずつほどけていく。<br>
-      最後にもう一度 <b>7秒</b>。そこで、ぜんぶ。
+      最後にもう一度 <b>7秒</b>。そこで、ぜんぶ。<br>
+      <b style="color:var(--shu-soft)">指が合ったあとに離したら、その場で通話は終わります。</b>
     </div>
   </div>
 
@@ -290,6 +298,15 @@
   </footer>
 </div>
 
+<div class="ended" id="ended">
+  <div>
+    <div class="cut">✕</div>
+    <h2 id="endWhy">切れました</h2>
+    <p>親指が離れたので、この通話は終わりました。<br>同じ相手にはもう戻れません。</p>
+    <button class="btn primary" id="endAgain">もう一度、はじめから</button>
+  </div>
+</div>
+
 <div class="wall" id="wall">
   <div>
     <h2>無料でいられるのは、ここまで</h2>
@@ -352,7 +369,8 @@ let progress=0, reveal=0, melt01=0;
 let connectedAt=0, stageAt=0, fullAt=0, last=performance.now(), lastBeat=0, beatIdx=0;
 let mode='', conn=null, peer=null, busy=false, isHost=false;
 let speaking=false, mouth=0, blink=1, nextBlink=0;
-let partnerWants=false, teaseOnce=false, walled=false;
+let partnerWants=false, walled=false;
+let ritual=false, youLiftAt=0;   // 親指が合ってからは、離した時点で終わり
 
 /* ================= 仮の相手 ================= */
 const HER={name:'ミナミ',age:24,from:'福岡'};
@@ -535,7 +553,7 @@ function openGate(){
 }
 function advance(){
   if(stage>=2)return;
-  stage++; progress=0; meDown=youDown=false; partnerWants=false; teaseOnce=false;
+  stage++; progress=0; meDown=youDown=false; partnerWants=false; ritual=false; youLiftAt=0;
   gateOpen=false; pad.classList.remove('call'); padwrap.classList.add('locked');
   stageAt=performance.now();
   flash.classList.remove('go'); void flash.offsetWidth; flash.classList.add('go');
@@ -550,20 +568,32 @@ function advance(){
   if(mode==='demo') setTimeout(step,2600);
   if(conn&&conn.open) try{conn.send({t:'st',s:stage})}catch(e){}
 }
+function cutSound(){
+  const a=audio(),o=a.createOscillator(),g=a.createGain();
+  o.type='sawtooth'; o.frequency.setValueAtTime(320,a.currentTime);
+  o.frequency.exponentialRampToValueAtTime(40,a.currentTime+.45);
+  g.gain.setValueAtTime(.3,a.currentTime); g.gain.exponentialRampToValueAtTime(.001,a.currentTime+.5);
+  o.connect(g).connect(a.destination); o.start(); o.stop(a.currentTime+.52);
+}
+function endCall(why){
+  if(phase==='ended')return;
+  phase='ended'; ritual=false; gateOpen=false; meDown=youDown=false; progress=0;
+  try{ if(conn&&conn.open) conn.send({t:'bye'}); }catch(e){}
+  setTimeout(()=>{ try{peer&&peer.destroy()}catch(e){} },250);
+  try{ speechSynthesis.cancel(); }catch(e){}
+  speaking=false; choices.innerHTML='';
+  padwrap.className='padwrap locked'; pad.classList.remove('call','both');
+  dot.className='dot'; statusText.textContent='切れました';
+  $('endWhy').textContent=why; $('ended').classList.add('on');
+  cutSound(); buzz([80,60,80]);
+}
 const mmss=ms=>{const s=Math.max(0,Math.ceil(ms/1000));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')};
 
 /* ================= 親指 ================= */
 function setDown(v){
   if(v===meDown)return; meDown=v;
   if(conn&&conn.open) try{conn.send({t:'th',d:v?1:0})}catch(e){}
-  if(mode==='demo'&&v){
-    pad.classList.remove('call');
-    if(stage===1&&!teaseOnce){        /* 最後の関門だけ、一度ためらう */
-      teaseOnce=true;
-      setTimeout(()=>{ if(meDown){ youDown=false; stateText.innerHTML='相手：<b>手が離れた</b>';
-        setTimeout(()=>{ if(meDown&&partnerWants) youDown=true; },1100);} },1700);
-    }
-  }
+  if(mode==='demo'&&v) pad.classList.remove('call');
 }
 pad.addEventListener('pointerdown',e=>{
   e.preventDefault(); if(phase!=='live'||!gateOpen||stage>=2)return;
@@ -624,6 +654,18 @@ function tick(now){
 
     if(stage<2&&gateOpen){
       const both=meDown&&youDown;
+      if(both&&!ritual){ ritual=true; youLiftAt=0; }   /* 指が合った＝ここから後戻りできない */
+      if(ritual){
+        if(!meDown){ endCall('あなたが、親指を離しました'); }
+        else if(!youDown){
+          /* 通信のゆらぎで誤爆しないよう、ほんの少しだけ様子を見る */
+          if(!youLiftAt) youLiftAt=now;
+          else if(now-youLiftAt>300) endCall('相手が、親指を離しました');
+          hint.textContent='相手の指が…';
+        }else youLiftAt=0;
+      }
+      if(phase!=='live') return requestAnimationFrame(tick);
+
       if(both)progress+=dt/HOLD_MS;
       else if(progress>0)progress-=dt/HOLD_MS*DRAIN;
       progress=Math.max(0,Math.min(1,progress));
@@ -631,7 +673,8 @@ function tick(now){
       if(both){
         const iv=620-progress*330;
         if(now-lastBeat>iv){lastBeat=now;beatIdx++;beat(.26+progress*.34,62+progress*22);if(beatIdx%2===0)buzz(8)}
-        hint.textContent='そのまま、離さないで'; stateText.innerHTML='ふたり：<b>合っている</b>';
+        hint.textContent='離したら、終わり';
+        stateText.innerHTML='ふたり：<b>合っている</b>';
       }else{
         hint.textContent=COPY[stage].hint;
         if(!meDown&&!youDown)stateText.textContent='相手：まだ置いていない';
@@ -709,6 +752,7 @@ function hookConn(c){
     if(d.t==='th') youDown=!!d.d;
     else if(d.t==='st'&&d.s>stage) advance();
     else if(d.t==='cfg'){ FAST=d.fast||1; HOLD_MS=d.hold||7000; applySpeedUI(); }
+    else if(d.t==='bye'){ endCall('相手が、親指を離しました'); }
   });
   c.on('close',()=>{ if(phase==='live'){ statusText.textContent='相手が切りました'; dot.className='dot'; } });
 }
@@ -780,6 +824,7 @@ $('btnJoin').onclick=async()=>{
 $('wExtend').onclick=()=>{ $('wall').classList.remove('on'); fullAt=performance.now(); walled=false;
   meltLab.textContent='延長中（仮）'; };
 $('wBye').onclick=()=>location.reload();
+$('endAgain').onclick=()=>location.reload();
 $('nextBtn').onclick=()=>{ try{speechSynthesis.cancel()}catch(e){} location.reload(); };
 $('keepBtn').onclick=()=>{ bubble.innerHTML='<span class="who">'+HER.name+'</span>連絡先、交換しました。'; choices.innerHTML=''; };
 
