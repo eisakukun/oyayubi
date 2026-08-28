@@ -1,0 +1,800 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>おやゆび — 声から、モザイクから、顔へ</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  :root{--bg:#0b0c10;--panel:#14161d;--line:#262a36;--ink:#eef1f7;--dim:#8b93a7;
+        --shu:#e2483a;--shu-soft:#ff7a68;--ok:#4ad6a0;--gold:#e8b64c}
+  html,body{height:100%}
+  body{background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;
+    overscroll-behavior:none;overflow:hidden}
+  .app{height:100dvh;max-width:520px;margin:0 auto;display:flex;flex-direction:column;
+    padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+
+  header{padding:10px 16px 6px;flex:0 0 auto}
+  .toprow{display:flex;align-items:center;gap:10px}
+  .logo{font-weight:800;letter-spacing:.12em;font-size:14px}
+  .logo b{color:var(--shu)}
+  .status{margin-left:auto;font-size:11.5px;color:var(--dim);display:flex;align-items:center;gap:6px}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--dim)}
+  .dot.live{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+  .dot.wait{background:var(--gold);animation:blink 1s infinite}
+  @keyframes blink{50%{opacity:.25}}
+  .ladder{display:flex;gap:6px;margin-top:9px}
+  .step{flex:1;text-align:center;font-size:10.5px;letter-spacing:.06em;color:#5c6478;
+    padding:5px 0 6px;border-radius:9px;background:#101219;border:1px solid #1b1f29;transition:.35s}
+  .step.done{color:#c9d0e0;border-color:#2c3140;background:#161a24}
+  .step.now{color:#fff;background:linear-gradient(180deg,#3a1a17,#1d1013);border-color:var(--shu);
+    box-shadow:0 0 0 1px rgba(226,72,58,.35),0 6px 20px rgba(226,72,58,.18)}
+  .step i{display:block;font-style:normal;font-size:14px;margin-bottom:1px;opacity:.9}
+
+  .stage{position:relative;flex:1 1 auto;min-height:0;margin:8px 12px 0;border-radius:22px;
+    overflow:hidden;background:#000;border:1px solid var(--line)}
+  #pView,#pRemote{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000}
+  #pRemote{display:none}
+  #voice{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;transition:opacity .6s}
+  .vignette{position:absolute;inset:0;pointer-events:none;
+    background:radial-gradient(120% 90% at 50% 0%,rgba(226,72,58,.08),transparent 62%),
+               radial-gradient(100% 70% at 50% 100%,rgba(0,0,0,.72),transparent 62%)}
+  .tag,.clock{position:absolute;top:10px;font-size:11px;letter-spacing:.06em;color:#cfd5e4;
+    background:rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.14);padding:4px 9px;
+    border-radius:999px;backdrop-filter:blur(6px);z-index:3}
+  .tag{left:10px}
+  .clock{right:10px;font-variant-numeric:tabular-nums}
+  /* 顔がほどけるまでのバー */
+  .meltbar{position:absolute;left:10px;right:10px;top:36px;z-index:3;opacity:0;transition:opacity .4s}
+  .meltbar.on{opacity:1}
+  .meltbar .lab{font-size:9.5px;letter-spacing:.1em;color:#c3cadb;text-shadow:0 1px 6px #000;margin-bottom:3px}
+  .meltbar .rail{height:4px;border-radius:99px;background:rgba(255,255,255,.16);overflow:hidden}
+  .meltbar .fill{height:100%;width:0;background:linear-gradient(90deg,#ff8b76,#e2483a);transition:width .3s linear}
+  .veil{position:absolute;inset:0;display:grid;place-items:center;text-align:center;
+    pointer-events:none;transition:opacity .35s;z-index:6;opacity:0}
+  .veil .big{font-size:19px;font-weight:800;letter-spacing:.04em;text-shadow:0 2px 20px #000}
+  .veil .sub{margin-top:6px;font-size:12.5px;color:#cfd5e4;text-shadow:0 2px 12px #000}
+  .selfview{position:absolute;right:10px;top:62px;width:70px;aspect-ratio:4/3;border-radius:11px;
+    overflow:hidden;border:1px solid rgba(255,255,255,.2);background:#111;z-index:3}
+  .selfview canvas{width:100%;height:100%;display:block}
+  .selflabel{position:absolute;right:10px;top:calc(62px + 70px*0.75 + 4px);font-size:9px;
+    letter-spacing:.06em;color:#8b93a7;background:rgba(0,0,0,.45);padding:2px 6px;border-radius:999px;z-index:3}
+
+  .talk{position:absolute;left:0;right:0;bottom:0;padding:14px 14px 12px;z-index:4;
+    background:linear-gradient(180deg,transparent,rgba(4,5,8,.88) 36%)}
+  .bubble{font-size:14.5px;line-height:1.55;min-height:22px;text-shadow:0 2px 10px #000}
+  .bubble .who{font-size:10.5px;letter-spacing:.14em;color:var(--shu-soft);display:block;margin-bottom:3px}
+  .choices{display:flex;flex-direction:column;gap:6px;margin-top:9px}
+  .choice{text-align:left;padding:9px 12px;border-radius:11px;border:1px solid rgba(255,255,255,.16);
+    background:rgba(18,20,27,.82);color:var(--ink);font-size:13px;font-family:inherit;cursor:pointer;
+    backdrop-filter:blur(8px);opacity:0;transform:translateY(6px);animation:cin .28s forwards}
+  @keyframes cin{to{opacity:1;transform:none}}
+  .choice:active{background:var(--shu);border-color:var(--shu)}
+  .mine{color:#aeb6c8;font-size:13px;text-align:right;text-shadow:0 2px 10px #000}
+
+  .padwrap{padding:10px 16px 6px;display:flex;flex-direction:column;align-items:center;gap:6px;
+    transition:opacity .4s;flex:0 0 auto}
+  .padwrap.locked{opacity:.28;pointer-events:none;filter:grayscale(.75)}
+  .padwrap.done{opacity:1;pointer-events:none;filter:none}
+  .hint{font-size:12.5px;color:var(--dim);height:17px;transition:color .2s;text-align:center}
+  .hint.on{color:var(--shu-soft)}
+  .pad{width:min(40vw,140px);aspect-ratio:1;position:relative;touch-action:none;cursor:pointer;
+    user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;
+    filter:drop-shadow(0 10px 30px rgba(0,0,0,.55))}
+  .pad svg{width:100%;height:100%;display:block;overflow:visible}
+  .pad.call{animation:call 1.5s infinite}
+  @keyframes call{0%,100%{filter:drop-shadow(0 0 0 rgba(226,72,58,0))}
+                  50%{filter:drop-shadow(0 0 22px rgba(226,72,58,.75))}}
+  .pad.press{animation:padpress .18s ease}
+  @keyframes padpress{50%{transform:scale(.972)}}
+  .glow{opacity:0;transition:opacity .25s}
+  .pad.both .glow{opacity:1}
+  .count{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none;font-variant-numeric:tabular-nums}
+  .count .n{font-size:25px;font-weight:800;line-height:1}
+  .count .u{font-size:9px;color:var(--dim);letter-spacing:.2em;margin-top:4px}
+  .state{font-size:11.5px;color:var(--dim);min-height:15px;text-align:center}
+  .state b{color:var(--ink)}
+  .stamp{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none;opacity:0}
+  .stamp.go{animation:stamp .5s cubic-bezier(.2,1.5,.4,1) forwards}
+  @keyframes stamp{0%{opacity:0;transform:scale(2.4) rotate(-14deg)}
+    60%{opacity:1;transform:scale(.94) rotate(-6deg)}100%{opacity:1;transform:scale(1) rotate(-7deg)}}
+
+  footer{padding:2px 16px 12px;display:flex;gap:10px;flex:0 0 auto}
+  .btn{flex:1;padding:12px 10px;border-radius:14px;border:1px solid var(--line);background:var(--panel);
+    color:var(--ink);font-size:14px;font-weight:700;font-family:inherit;cursor:pointer;transition:.15s}
+  .btn:active{transform:translateY(1px);background:#1b1e28}
+  .btn.primary{background:var(--shu);border-color:var(--shu)}
+  .btn.gold{background:var(--gold);border-color:var(--gold);color:#1a1206}
+
+  /* ===== 入口 ===== */
+  .home{position:fixed;inset:0;z-index:40;overflow-y:auto;
+    background:radial-gradient(120% 70% at 50% 0%,#1c1114,#0b0c10 62%);
+    max-width:520px;margin:0 auto;padding:26px 24px 32px;
+    display:flex;flex-direction:column;justify-content:center;gap:12px}
+  .home.hide{display:none}
+  .home h1{font-size:25px;letter-spacing:.05em;line-height:1.35}
+  .home h1 b{color:var(--shu)}
+  .home .lead{font-size:12.5px;color:var(--dim);line-height:1.85;margin:6px 0 4px}
+  .mode{display:block;width:100%;text-align:left;background:#12141b;border:1px solid var(--line);
+    border-radius:16px;padding:14px 15px;color:var(--ink);font-family:inherit;cursor:pointer;transition:.15s}
+  .mode:active{transform:translateY(1px)}
+  .mode.hot{border-color:var(--shu);background:linear-gradient(180deg,#22151a,#12141b)}
+  .mode .t{font-size:15px;font-weight:800;display:flex;align-items:center;gap:8px}
+  .mode .t em{font-style:normal;font-size:10px;letter-spacing:.1em;padding:2px 7px;border-radius:99px;
+    background:var(--shu);color:#fff}
+  .mode .t em.soft{background:#2b3040;color:var(--dim)}
+  .mode .d{font-size:12px;color:var(--dim);line-height:1.7;margin-top:5px}
+  .sub2{display:flex;gap:8px;align-items:center;margin-top:2px}
+  input.code{background:#0d0f15;border:1px solid var(--line);border-radius:12px;color:var(--ink);
+    font-family:inherit;letter-spacing:.3em;font-size:18px;padding:10px;width:100%}
+  .code.big{font-size:30px;font-weight:800;letter-spacing:.3em;text-align:center;color:var(--shu-soft);
+    background:none;border:none;padding:2px 0}
+  .netmsg{font-size:12px;color:var(--dim);text-align:center;min-height:17px}
+  .speedrow{display:flex;gap:8px;margin-top:2px}
+  .sp{flex:1;padding:9px 8px;border-radius:12px;border:1px solid var(--line);background:#101219;
+    color:var(--dim);font-family:inherit;font-size:12.5px;font-weight:700;cursor:pointer;text-align:center}
+  .sp i{display:block;font-style:normal;font-size:10px;font-weight:400;opacity:.75;margin-top:3px}
+  .sp.on{background:var(--shu);border-color:var(--shu);color:#fff}
+
+  /* ===== 無料ぶんが終わる画面 ===== */
+  .wall{position:fixed;inset:0;z-index:45;display:none;place-items:center;text-align:center;padding:30px;
+    background:rgba(7,8,11,.93);backdrop-filter:blur(10px);max-width:520px;margin:0 auto}
+  .wall.on{display:grid}
+  .wall h2{font-size:21px;margin-bottom:10px}
+  .wall p{font-size:13px;color:var(--dim);line-height:1.9;margin-bottom:18px}
+  .wall .row{display:flex;flex-direction:column;gap:9px}
+  .memo{margin-top:14px;font-size:10.5px;color:#5c6478;line-height:1.7}
+
+  .dev{position:fixed;left:0;right:0;bottom:0;z-index:20;background:#0f1117;border-top:1px solid var(--line);
+    padding:12px 16px calc(14px + env(safe-area-inset-bottom));transform:translateY(100%);
+    transition:transform .25s;max-width:520px;margin:0 auto}
+  .dev.open{transform:none}
+  .dev h4{font-size:10.5px;color:var(--dim);letter-spacing:.14em;margin-bottom:8px}
+  .row{display:flex;gap:7px;flex-wrap:wrap}
+  .chip{padding:8px 11px;border-radius:11px;border:1px solid var(--line);background:#161923;
+    color:var(--dim);font-size:12px;font-family:inherit;cursor:pointer}
+  .chip.on{background:var(--shu);border-color:var(--shu);color:#fff}
+  .devtoggle{position:fixed;z-index:21;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));
+    width:28px;height:28px;border-radius:50%;border:1px solid var(--line);
+    background:rgba(20,22,29,.7);color:#4a5265;font-size:11px;cursor:pointer}
+  .flash{position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:50}
+  .flash.go{animation:fl .4s ease-out}
+  @keyframes fl{0%{opacity:.5}100%{opacity:0}}
+</style>
+</head>
+<body>
+
+<!-- ===================== 入口 ===================== -->
+<div class="home" id="home">
+  <div>
+    <h1>おやゆび<b>・</b><br>声から、モザイクから、顔へ</h1>
+    <div class="lead">
+      いきなり顔は出ません。<br>
+      ふたりで親指を <b>7秒</b> 合わせられたら、顔が<b>モザイク</b>で出る。<br>
+      そこから <b>5分</b> 話すあいだに、モザイクは少しずつほどけていく。<br>
+      最後にもう一度 <b>7秒</b>。そこで、ぜんぶ。
+    </div>
+  </div>
+
+  <button class="mode hot" id="mDemo">
+    <div class="t">ひとりで体験する <em>見せる用</em></div>
+    <div class="d">仮の相手（声つき）と最後まで通せます。人に見せるならこれ。</div>
+  </button>
+
+  <button class="mode" id="mLobby">
+    <div class="t">いま誰かとつながる <em>本番</em></div>
+    <div class="d">待っている人がいればすぐつながる。いなければ、あなたが待つ側になります。</div>
+  </button>
+
+  <button class="mode" id="mCode">
+    <div class="t">あいことばで会う <em>友達と実演</em></div>
+    <div class="d">目の前の友達とやるならこれが確実。片方が空のまま「入る」で待ち、出た4けたをもう片方が入れる。</div>
+  </button>
+  <div id="codeBox" style="display:none">
+    <div class="sub2">
+      <input class="code" id="joinCode" inputmode="numeric" maxlength="4" placeholder="0000">
+      <button class="btn" id="btnJoin" style="flex:0 0 74px">入る</button>
+    </div>
+    <div class="code big" id="myCode" style="display:none">----</div>
+  </div>
+  <div class="netmsg" id="netmsg"></div>
+  <div class="speedrow" id="speedRow">
+    <button class="sp on" data-fast="1">本番の長さ<i>7秒 → 5分 → 3分</i></button>
+    <button class="sp" data-fast="10">実演の長さ<i>7秒 → 30秒 → 18秒</i></button>
+  </div>
+
+</div>
+
+<!-- ===================== 本体 ===================== -->
+<div class="app">
+  <header>
+    <div class="toprow">
+      <div class="logo">おやゆび<b>・</b>OYAYUBI</div>
+      <div class="status"><span class="dot" id="dot"></span><span id="statusText">準備中</span></div>
+    </div>
+    <div class="ladder">
+      <div class="step now" id="st0"><i>🔉</i>声だけ</div>
+      <div class="step" id="st1"><i>🟪</i>モザイク</div>
+      <div class="step" id="st2"><i>🙂</i>顔ぜんぶ</div>
+    </div>
+  </header>
+
+  <div class="stage">
+    <canvas id="pView"></canvas>
+    <video id="pRemote" playsinline autoplay></video>
+    <canvas id="voice"></canvas>
+    <div class="vignette"></div>
+    <div class="tag" id="partnerTag">？？？</div>
+    <div class="clock" id="clock">0:00</div>
+    <div class="meltbar" id="melt">
+      <div class="lab" id="meltLab">顔がほどけるまで</div>
+      <div class="rail"><div class="fill" id="meltFill"></div></div>
+    </div>
+    <div class="selfview"><canvas id="send"></canvas></div>
+    <div class="selflabel">相手に見えている絵</div>
+    <div class="talk">
+      <div class="bubble" id="bubble"></div>
+      <div class="choices" id="choices"></div>
+    </div>
+    <div class="veil" id="veil">
+      <div><div class="big" id="veilBig"></div><div class="sub" id="veilSub"></div></div>
+    </div>
+  </div>
+
+  <div class="padwrap locked" id="padwrap">
+    <div class="hint" id="hint">親指をのせる</div>
+    <div class="pad" id="pad">
+      <svg viewBox="0 0 240 240">
+        <defs>
+          <radialGradient id="gGlow" cx="50%" cy="50%">
+            <stop offset="0%" stop-color="#e2483a" stop-opacity=".55"/>
+            <stop offset="70%" stop-color="#e2483a" stop-opacity="0"/></radialGradient>
+          <linearGradient id="gProg" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#ff8b76"/><stop offset="100%" stop-color="#e2483a"/></linearGradient>
+          <clipPath id="clipTop"><rect x="0" y="0" width="240" height="120"/></clipPath>
+          <clipPath id="clipBottom"><rect x="0" y="120" width="240" height="120"/></clipPath>
+        </defs>
+        <circle class="glow" cx="120" cy="120" r="118" fill="url(#gGlow)"/>
+        <circle cx="120" cy="120" r="100" fill="#151821" stroke="#242835" stroke-width="1.5"/>
+        <circle cx="120" cy="120" r="104" fill="none" stroke="#20242f" stroke-width="9"/>
+        <circle id="prog" cx="120" cy="120" r="104" fill="none" stroke="url(#gProg)" stroke-width="9"
+          stroke-linecap="round" transform="rotate(-90 120 120)" stroke-dasharray="653.45" stroke-dashoffset="653.45"/>
+        <g id="thumbP" opacity=".18" transform="translate(0,-26)"><g clip-path="url(#clipTop)">
+          <g fill="none" stroke="#7f8aa3" stroke-width="2.4" stroke-linecap="round">
+            <ellipse cx="120" cy="120" rx="14" ry="11"/><ellipse cx="120" cy="120" rx="26" ry="21"/>
+            <ellipse cx="120" cy="120" rx="38" ry="31"/><ellipse cx="120" cy="120" rx="50" ry="41"/>
+            <ellipse cx="120" cy="120" rx="62" ry="51"/></g></g></g>
+        <g id="thumbS" opacity=".18" transform="translate(0,26)"><g clip-path="url(#clipBottom)">
+          <g fill="none" stroke="#e2483a" stroke-width="2.4" stroke-linecap="round">
+            <ellipse cx="120" cy="120" rx="14" ry="11"/><ellipse cx="120" cy="120" rx="26" ry="21"/>
+            <ellipse cx="120" cy="120" rx="38" ry="31"/><ellipse cx="120" cy="120" rx="50" ry="41"/>
+            <ellipse cx="120" cy="120" rx="62" ry="51"/></g></g></g>
+      </svg>
+      <div class="count"><div><div class="n" id="num">7.0</div><div class="u" id="unit">SECONDS</div></div></div>
+      <div class="stamp" id="stamp">
+        <svg width="98" height="98" viewBox="0 0 150 150">
+          <circle cx="75" cy="75" r="66" fill="none" stroke="#e2483a" stroke-width="7" opacity=".92"/>
+          <text x="75" y="62" text-anchor="middle" font-size="34" font-weight="900" fill="#e2483a"
+            font-family="'Hiragino Mincho ProN',serif">成立</text>
+          <text x="75" y="100" text-anchor="middle" font-size="21" font-weight="900" fill="#e2483a"
+            font-family="'Hiragino Mincho ProN',serif" letter-spacing="4">親指</text></svg>
+      </div>
+    </div>
+    <div class="state" id="stateText">　</div>
+  </div>
+
+  <footer>
+    <button class="btn" id="nextBtn">切る</button>
+    <button class="btn primary" id="keepBtn" style="display:none">連絡先を交換</button>
+  </footer>
+</div>
+
+<div class="wall" id="wall">
+  <div>
+    <h2>無料でいられるのは、ここまで</h2>
+    <p>顔を出してから <b id="freeLabel">3分</b>。<br>
+       ここから先を続けるかどうかを、ふたりで決めます。</p>
+    <div class="row">
+      <button class="btn gold" id="wExtend">このまま続ける（仮）</button>
+      <button class="btn" id="wBye">ここで終わる</button>
+    </div>
+    <div class="memo">※ ここが料金の入口になる予定の場所です。<br>いまは押しても続くだけで、お金は一切かかりません。</div>
+  </div>
+</div>
+
+<button class="devtoggle" id="devToggle">⚙</button>
+<div class="dev" id="dev">
+  <h4>早送り（試すとき用）</h4>
+  <div class="row">
+    <button class="chip on" data-fast="1">本番（5分 / 3分）</button>
+    <button class="chip" data-fast="10">10倍速</button>
+    <button class="chip" data-fast="30">30倍速</button>
+  </div>
+  <h4 style="margin-top:12px">親指を合わせる長さ</h4>
+  <div class="row">
+    <button class="chip" data-sec="5">5秒</button>
+    <button class="chip on" data-sec="7">7秒</button>
+    <button class="chip" data-sec="10">10秒</button>
+  </div>
+</div>
+<div class="flash" id="flash"></div>
+<video id="camRaw" playsinline muted autoplay style="display:none"></video>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script>
+/* ==================================================================
+   おやゆび
+   ① 声だけ →（ふたりで親指7秒）→ ② 顔がモザイクで出る
+   ② のあいだ5分かけてモザイクがほどけていく →（もう一度7秒）→ ③ ぜんぶ
+
+   顔は「ぼかして表示」ではなく、送る前にモザイクをかける。
+   まだ見せていない細かさの絵は、相手の端末に存在しない。
+   ================================================================== */
+const $=id=>document.getElementById(id);
+const pad=$('pad'),prog=$('prog'),num=$('num'),unit=$('unit'),hint=$('hint'),stateText=$('stateText');
+const thumbS=$('thumbS'),thumbP=$('thumbP'),stamp=$('stamp'),flash=$('flash'),padwrap=$('padwrap');
+const camRaw=$('camRaw'),sendCv=$('send'),pView=$('pView'),pRemote=$('pRemote'),voice=$('voice');
+const veil=$('veil'),veilBig=$('veilBig'),veilSub=$('veilSub'),dot=$('dot'),statusText=$('statusText');
+const partnerTag=$('partnerTag'),clock=$('clock'),home=$('home'),netmsg=$('netmsg');
+const bubble=$('bubble'),choices=$('choices'),melt=$('melt'),meltFill=$('meltFill'),meltLab=$('meltLab');
+const steps=[$('st0'),$('st1'),$('st2')];
+
+const C=2*Math.PI*104, SW=480, SH=360, DRAIN=2.2;
+let HOLD_MS=7000;            // 親指を合わせる長さ
+const TALK_BASE=5*60*1000;   // モザイクがほどけきるまで
+const FREE_BASE=3*60*1000;   // 顔を出してからの無料時間（＝料金の入口）
+let FAST=1;
+const TALK=()=>TALK_BASE/FAST, FREE=()=>FREE_BASE/FAST;
+
+let phase='home', stage=0, gateOpen=false;
+let meDown=false, youDown=false;
+let progress=0, reveal=0, melt01=0;
+let connectedAt=0, stageAt=0, fullAt=0, last=performance.now(), lastBeat=0, beatIdx=0;
+let mode='', conn=null, peer=null, busy=false, isHost=false;
+let speaking=false, mouth=0, blink=1, nextBlink=0;
+let partnerWants=false, teaseOnce=false, walled=false;
+
+/* ================= 仮の相手 ================= */
+const HER={name:'ミナミ',age:24,from:'福岡'};
+const avCv=document.createElement('canvas'), av=avCv.getContext('2d');
+avCv.width=SW; avCv.height=SH;
+function drawAvatar(t){
+  const W=SW,H=SH;
+  const g=av.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#3b4260'); g.addColorStop(1,'#191d29');
+  av.fillStyle=g; av.fillRect(0,0,W,H);
+  av.save(); av.translate(Math.sin(t/2300)*3,Math.sin(t/1700)*2);
+  const cx=W/2, cy=H*0.46, fw=W*0.15, fh=H*0.205, HAIR='#2c2321';
+  av.fillStyle='#4a4055'; av.beginPath(); av.ellipse(cx,H*1.16,W*0.40,H*0.36,0,0,7); av.fill();
+  av.fillStyle='#e3b89e'; av.fillRect(cx-fw*0.33,cy+fh*0.52,fw*0.66,fh*0.7);
+  av.fillStyle=HAIR; av.beginPath(); av.ellipse(cx,cy+fh*0.16,fw*1.3,fh*1.18,0,0,7); av.fill();
+  av.fillStyle='#f3d4bd'; av.beginPath(); av.ellipse(cx,cy,fw,fh,0,0,7); av.fill();
+  av.fillStyle=HAIR; av.beginPath();
+  av.moveTo(cx-fw*1.07,cy-fh*0.08);
+  av.quadraticCurveTo(cx-fw*1.12,cy-fh*1.06,cx,cy-fh*1.04);
+  av.quadraticCurveTo(cx+fw*1.12,cy-fh*1.06,cx+fw*1.07,cy-fh*0.08);
+  av.quadraticCurveTo(cx+fw*0.72,cy-fh*0.5,cx+fw*0.16,cy-fh*0.56);
+  av.quadraticCurveTo(cx-fw*0.62,cy-fh*0.64,cx-fw*1.07,cy-fh*0.08);
+  av.closePath(); av.fill();
+  const ey=cy-fh*0.1, ex=fw*0.45;
+  av.strokeStyle='#3d2f27'; av.lineWidth=3.2; av.lineCap='round';
+  [-1,1].forEach(s=>{av.beginPath();
+    av.moveTo(cx+s*ex-12,ey-fh*0.28); av.quadraticCurveTo(cx+s*ex,ey-fh*0.36,cx+s*ex+12,ey-fh*0.26); av.stroke();});
+  [-1,1].forEach(s=>{const x=cx+s*ex;
+    av.fillStyle='#fff'; av.beginPath(); av.ellipse(x,ey,14,10.5*blink,0,0,7); av.fill();
+    if(blink>0.25){ av.fillStyle='#3b2a24';
+      av.beginPath(); av.ellipse(x+Math.sin(t/2600)*2,ey,7.2,8*blink,0,0,7); av.fill();
+      av.fillStyle='#fff'; av.beginPath(); av.arc(x-2.2+Math.sin(t/2600)*2,ey-3,2.2,0,7); av.fill(); }
+    av.strokeStyle='#33241f'; av.lineWidth=2.4;
+    av.beginPath(); av.ellipse(x,ey,14,10.5*blink,0,Math.PI,0,true); av.stroke();});
+  av.fillStyle='rgba(231,150,140,.3)';
+  [-1,1].forEach(s=>{av.beginPath(); av.ellipse(cx+s*fw*0.62,cy+fh*0.24,14,8,0,0,7); av.fill();});
+  av.strokeStyle='rgba(150,105,88,.6)'; av.lineWidth=2;
+  av.beginPath(); av.moveTo(cx-1,cy+fh*0.12); av.lineTo(cx+3,cy+fh*0.23); av.stroke();
+  const my=cy+fh*0.53, open=2+mouth*12;
+  av.fillStyle='#a8474c'; av.beginPath(); av.ellipse(cx,my,10.5+mouth*3,open,0,0,7); av.fill();
+  av.fillStyle='rgba(255,255,255,.13)'; av.beginPath(); av.ellipse(cx,my-open*0.45,6.5,open*0.22,0,0,7); av.fill();
+  av.restore();
+}
+
+/* ================= モザイク：見せる細かさだけを作る =================
+   reveal 0 → 声だけ（ほぼ影）
+   reveal 1 → モザイクの顔（melt01 が進むほど細かくなる）
+   reveal 2 → そのまま
+=================================================================== */
+const tiny=document.createElement('canvas'), tx=tiny.getContext('2d');
+function applyMosaic(ctx,src,rv,mt,w,h){
+  ctx.fillStyle='#07080b'; ctx.fillRect(0,0,w,h);
+  const r0=Math.min(1,rv), r1=Math.max(0,Math.min(1,rv-1));
+  if(r1>=0.999){ try{ctx.imageSmoothingEnabled=true;ctx.drawImage(src,0,0,w,h)}catch(e){} return; }
+  /* 何ブロックに割るか。声だけ=8、モザイク開始=20、5分後=64、解除で素の絵へ */
+  const blocks = 8 + r0*(12+mt*44) + r1*160;
+  const q=Math.max(3,Math.round(blocks));
+  tiny.width=q; tiny.height=Math.max(1,Math.round(q*h/w));
+  tx.imageSmoothingEnabled=true;
+  try{ tx.drawImage(src,0,0,tiny.width,tiny.height); }catch(e){ return; }
+  ctx.imageSmoothingEnabled=false;          /* ← 四角いモザイクの手ざわり */
+  ctx.drawImage(tiny,0,0,w,h);
+  ctx.imageSmoothingEnabled=true;
+  const dark=0.62-r0*0.42-r1*0.2;
+  if(dark>0){ ctx.fillStyle='rgba(7,8,11,'+dark.toFixed(2)+')'; ctx.fillRect(0,0,w,h); }
+}
+const sx=sendCv.getContext('2d'); sendCv.width=SW; sendCv.height=SH;
+const px=pView.getContext('2d'); pView.width=SW; pView.height=SH;
+function drawSelf(){
+  if(camRaw.readyState>=2&&camRaw.videoWidth) applyMosaic(sx,camRaw,reveal,melt01,SW,SH);
+  else{ sx.fillStyle='#0e1017'; sx.fillRect(0,0,SW,SH);
+        sx.fillStyle='#4a5265'; sx.font='bold 34px sans-serif'; sx.textAlign='center';
+        sx.fillText('カメラなし',SW/2,SH/2+12); }
+}
+
+/* ================= 音 ================= */
+let ac=null, analyser=null, adata=null, micTrack=null;
+function audio(){if(!ac)ac=new (window.AudioContext||window.webkitAudioContext)();if(ac.state==='suspended')ac.resume();return ac}
+function beat(v=.5,f=64){const a=audio(),o=a.createOscillator(),g=a.createGain();
+  o.type='sine';o.frequency.setValueAtTime(f,a.currentTime);
+  o.frequency.exponentialRampToValueAtTime(f*.55,a.currentTime+.14);
+  g.gain.setValueAtTime(0,a.currentTime);g.gain.linearRampToValueAtTime(v,a.currentTime+.012);
+  g.gain.exponentialRampToValueAtTime(.001,a.currentTime+.22);
+  o.connect(g).connect(a.destination);o.start();o.stop(a.currentTime+.24)}
+function don(){const a=audio(),o=a.createOscillator(),g=a.createGain();
+  o.type='triangle';o.frequency.setValueAtTime(180,a.currentTime);
+  o.frequency.exponentialRampToValueAtTime(48,a.currentTime+.5);
+  g.gain.setValueAtTime(.5,a.currentTime);g.gain.exponentialRampToValueAtTime(.001,a.currentTime+.7);
+  o.connect(g).connect(a.destination);o.start();o.stop(a.currentTime+.72)}
+function chime(){const a=audio();[660,880,1320].forEach((f,i)=>{const o=a.createOscillator(),g=a.createGain();
+  o.type='sine';o.frequency.value=f;g.gain.setValueAtTime(0,a.currentTime+i*.07);
+  g.gain.linearRampToValueAtTime(.14,a.currentTime+i*.07+.02);
+  g.gain.exponentialRampToValueAtTime(.001,a.currentTime+i*.07+.5);
+  o.connect(g).connect(a.destination);o.start(a.currentTime+i*.07);o.stop(a.currentTime+i*.07+.52)})}
+const buzz=p=>navigator.vibrate&&navigator.vibrate(p);
+
+/* ================= 相手の声（仮の相手用） ================= */
+let jaVoice=null;
+function pickVoice(){ if(!window.speechSynthesis)return;
+  const vs=speechSynthesis.getVoices();
+  jaVoice = vs.find(v=>/ja/i.test(v.lang)&&/Kyoko|O-?ren|Google/i.test(v.name)) || vs.find(v=>/ja/i.test(v.lang)) || null; }
+pickVoice(); if(window.speechSynthesis) speechSynthesis.onvoiceschanged=pickVoice;
+function say(text,done){
+  bubble.innerHTML='<span class="who">'+HER.name+'</span>'+text;
+  speaking=true;
+  const fin=()=>{ if(!speaking)return; speaking=false; mouth=0; done&&done(); };
+  if(window.speechSynthesis&&jaVoice){
+    try{speechSynthesis.cancel()}catch(e){}
+    const u=new SpeechSynthesisUtterance(text.replace(/[…、]/g,'、'));
+    u.lang='ja-JP'; u.voice=jaVoice; u.rate=1.02; u.pitch=1.12;
+    u.onend=fin; u.onerror=fin; speechSynthesis.speak(u);
+    setTimeout(fin,1200+text.length*220);
+  }else setTimeout(fin,900+text.length*130);
+}
+function mine(t){ bubble.innerHTML='<div class="mine">'+t+'</div>'; }
+
+/* ================= 台本（仮の相手） ================= */
+const SCRIPT=[
+ {s:0,say:'もしもし…聞こえてる？',c:['聞こえてるよ','ちょっと遠いかも']},
+ {s:0,say:'うわ、ほんとに真っ暗なんだね',c:['顔、見えないね','これはこれで落ち着く']},
+ {s:0,say:'顔が見えないほうが、なんか話しやすいかも',c:['わかる','ちょっと緊張してる']},
+ {s:0,say:'…ねえ、顔、モザイクだけでも出してみない？',c:['いいよ'],unlock:true},
+ {s:1,say:'うわっ、まだ全然わかんない。四角い',c:['たしかに','なんとなく雰囲気はある']},
+ {s:1,say:'これ、話してるあいだに少しずつ細かくなるらしいよ',c:['じゃあ喋らないとね','急がなくていいね']},
+ {s:1,say:'いま何してた？',c:['ずっと作業してた','なんとなく開いた']},
+ {s:1,say:'わたしは仕事おわり。…ちょっとだけ見えてきた？',c:['見えてきた','まだ四角い']},
+ {s:1,say:'ねえ、そろそろ…ぜんぶ、見てもいい？',c:['見たい'],unlock:true},
+ {s:2,say:'はじめまして。…ちゃんと、はじめまして',c:['はじめまして']},
+ {s:2,say:'ここまで来たの、はじめてかも',c:['自分も','緊張した']},
+ {s:2,say:'また話そうよ。今度は最初から顔で',c:['うん'],end:true}
+];
+let line=0;
+function step(){
+  const L=SCRIPT[line]; if(!L)return;
+  choices.innerHTML='';
+  say(L.say,()=>{ if(L.unlock){callPad();return} if(L.end){finish();return} showChoices(L.c); });
+}
+function showChoices(list){
+  choices.innerHTML='';
+  (list||['…']).forEach((t,i)=>{
+    const b=document.createElement('button');
+    b.className='choice'; b.textContent=t; b.style.animationDelay=(i*70)+'ms';
+    b.onclick=()=>{ mine(t); choices.innerHTML=''; line++; setTimeout(step,700); };
+    choices.appendChild(b);
+  });
+}
+function callPad(){
+  partnerWants=true; openGate();
+  setTimeout(()=>{ if(partnerWants) youDown=true; },900);
+}
+function finish(){ choices.innerHTML=''; bubble.innerHTML='<span class="who">'+HER.name+'</span>…（通話が続いています）'; }
+
+/* ================= 進行 ================= */
+const COPY=[
+  {big:'いまは声だけ',sub:'顔はまだ、どこにも送られていません',hint:'親指をのせる（モザイクで顔を出す）'},
+  {big:'顔が出ました',sub:'話しているあいだに、モザイクがほどけていきます',hint:'親指をのせる（ぜんぶ見せる）'},
+  {big:'ぜんぶ',sub:'ふたりとも、見せることを選びました',hint:''}
+];
+function paintStage(){
+  steps.forEach((el,i)=>el.className='step'+(i<stage?' done':i===stage?' now':''));
+  hint.textContent=COPY[stage].hint;
+  partnerTag.textContent = stage===0?'？？？':stage===1?HER.name:HER.name+'・'+HER.age+'・'+HER.from;
+}
+function showVeil(b,s,ms){ veilBig.textContent=b; veilSub.textContent=s||''; veil.style.opacity=1;
+  setTimeout(()=>veil.style.opacity=0, ms||2200); }
+function startLive(kind){
+  mode=kind; home.classList.add('hide'); phase='live';
+  stage=0; progress=0; reveal=0; melt01=0; line=0; gateOpen=false; walled=false;
+  connectedAt=performance.now(); stageAt=connectedAt;
+  dot.className='dot live'; statusText.textContent='つながりました';
+  padwrap.className='padwrap locked'; stateText.textContent='いまは、声だけ';
+  buzz(20); chime(); paintStage(); showVeil(COPY[0].big,COPY[0].sub,2600);
+  if(mode==='demo') setTimeout(step,2000);
+  else openGate();                        /* 本物どうしは最初から押せる */
+}
+function openGate(){
+  if(gateOpen||stage>=2)return;
+  gateOpen=true; padwrap.classList.remove('locked'); pad.classList.add('call');
+  chime(); buzz([15,40,15]);
+}
+function advance(){
+  if(stage>=2)return;
+  stage++; progress=0; meDown=youDown=false; partnerWants=false; teaseOnce=false;
+  gateOpen=false; pad.classList.remove('call'); padwrap.classList.add('locked');
+  stageAt=performance.now();
+  flash.classList.remove('go'); void flash.offsetWidth; flash.classList.add('go');
+  showVeil(COPY[stage].big,COPY[stage].sub,2400);
+  if(stage===1){ chime(); buzz([20,50,20]); statusText.textContent='モザイクで見えています';
+    stateText.textContent='話しているあいだに、ほどけていきます'; melt.classList.add('on'); }
+  else{ stamp.classList.add('go'); don(); buzz([30,60,140]);
+    statusText.textContent='ぜんぶ、公開'; fullAt=performance.now();
+    melt.classList.add('on'); meltLab.textContent='無料でいられる時間';
+    padwrap.className='padwrap done'; $('keepBtn').style.display=''; }
+  paintStage(); line++;
+  if(mode==='demo') setTimeout(step,2600);
+  if(conn&&conn.open) try{conn.send({t:'st',s:stage})}catch(e){}
+}
+const mmss=ms=>{const s=Math.max(0,Math.ceil(ms/1000));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')};
+
+/* ================= 親指 ================= */
+function setDown(v){
+  if(v===meDown)return; meDown=v;
+  if(conn&&conn.open) try{conn.send({t:'th',d:v?1:0})}catch(e){}
+  if(mode==='demo'&&v){
+    pad.classList.remove('call');
+    if(stage===1&&!teaseOnce){        /* 最後の関門だけ、一度ためらう */
+      teaseOnce=true;
+      setTimeout(()=>{ if(meDown){ youDown=false; stateText.innerHTML='相手：<b>手が離れた</b>';
+        setTimeout(()=>{ if(meDown&&partnerWants) youDown=true; },1100);} },1700);
+    }
+  }
+}
+pad.addEventListener('pointerdown',e=>{
+  e.preventDefault(); if(phase!=='live'||!gateOpen||stage>=2)return;
+  try{pad.setPointerCapture(e.pointerId)}catch(_){}
+  setDown(true); audio(); buzz(12);
+  pad.classList.remove('press'); void pad.offsetWidth; pad.classList.add('press');
+});
+['pointerup','pointercancel'].forEach(ev=>pad.addEventListener(ev,()=>setDown(false)));
+window.addEventListener('blur',()=>setDown(false));
+window.addEventListener('pointerup',()=>setDown(false));
+window.addEventListener('pointercancel',()=>setDown(false));
+pad.addEventListener('contextmenu',e=>e.preventDefault());
+pad.addEventListener('touchstart',e=>e.preventDefault(),{passive:false});
+
+/* ================= 声の輪 ================= */
+const vctx=voice.getContext('2d'); let ripples=[];
+function drawVoice(t,level){
+  const w=voice.clientWidth,h=voice.clientHeight,dpr=Math.min(2,devicePixelRatio||1);
+  if(!w||!h)return;
+  if(voice.width!==(w*dpr|0)){voice.width=w*dpr;voice.height=h*dpr}
+  vctx.setTransform(dpr,0,0,dpr,0,0); vctx.clearRect(0,0,w,h);
+  const cx=w/2, cy=stage===0?h*0.42:h*0.12, base=stage===0?44:11;
+  const r=Math.max(2,base+level*(stage===0?68:14));
+  if(level>0.3&&t-(ripples.length?ripples[ripples.length-1].t:0)>210)ripples.push({t,r});
+  ripples=ripples.filter(p=>t-p.t<1500);
+  ripples.forEach(p=>{const k=(t-p.t)/1500;
+    vctx.beginPath(); vctx.arc(cx,cy,Math.max(1,p.r+k*130),0,7);
+    vctx.strokeStyle='rgba(226,72,58,'+((1-k)*(stage===0?.35:.14)).toFixed(3)+')';
+    vctx.lineWidth=1.6; vctx.stroke()});
+  const g=vctx.createRadialGradient(cx,cy,0,cx,cy,r*1.9);
+  g.addColorStop(0,'rgba(255,138,118,'+(stage===0?.3:.1)+')'); g.addColorStop(1,'rgba(226,72,58,0)');
+  vctx.fillStyle=g; vctx.beginPath(); vctx.arc(cx,cy,r*1.9,0,7); vctx.fill();
+  vctx.beginPath(); vctx.arc(cx,cy,r,0,7);
+  vctx.strokeStyle='rgba(255,170,155,'+((stage===0?.8:.4)*Math.min(1,.18+level*2.4)).toFixed(3)+')';
+  vctx.lineWidth=2; vctx.stroke();
+}
+
+/* ================= メインループ ================= */
+function tick(now){
+  const dt=Math.max(0,Math.min(64,now-last)); last=now;   /* 時計が飛んでも壊れないように */
+  mouth = speaking ? Math.max(0,(Math.sin(now/95)*.5+.5)*(Math.sin(now/47)*.35+.65)) : mouth*0.85;
+  if(now>nextBlink){ nextBlink=now+1800+Math.random()*3200; blink=0; }
+  blink=Math.max(0,Math.min(1,blink+dt/110));
+
+  if(phase==='live'){
+    /* モザイクがほどけていく／無料時間が減っていく */
+    if(stage===1){
+      melt01=Math.min(1,(now-stageAt)/TALK());
+      meltFill.style.width=(melt01*100).toFixed(1)+'%';
+      meltLab.textContent='顔がほどけるまで　あと '+mmss(TALK()-(now-stageAt));
+      if(melt01>=1&&!gateOpen&&mode!=='demo') openGate();
+    }else if(stage===2){
+      const leftMs=FREE()-(now-fullAt);
+      meltFill.style.width=Math.max(0,Math.min(100,leftMs/FREE()*100)).toFixed(1)+'%';
+      meltLab.textContent='無料でいられる時間　あと '+mmss(leftMs);
+      if(leftMs<=0&&!walled){ walled=true; $('wall').classList.add('on'); }
+    }
+
+    if(stage<2&&gateOpen){
+      const both=meDown&&youDown;
+      if(both)progress+=dt/HOLD_MS;
+      else if(progress>0)progress-=dt/HOLD_MS*DRAIN;
+      progress=Math.max(0,Math.min(1,progress));
+      pad.classList.toggle('both',both); hint.classList.toggle('on',both);
+      if(both){
+        const iv=620-progress*330;
+        if(now-lastBeat>iv){lastBeat=now;beatIdx++;beat(.26+progress*.34,62+progress*22);if(beatIdx%2===0)buzz(8)}
+        hint.textContent='そのまま、離さないで'; stateText.innerHTML='ふたり：<b>合っている</b>';
+      }else{
+        hint.textContent=COPY[stage].hint;
+        if(!meDown&&!youDown)stateText.textContent='相手：まだ置いていない';
+        else if(meDown)stateText.textContent='相手を待っている…';
+        else stateText.innerHTML='相手：<b>もう置いている</b>';
+      }
+      if(progress>=1) advance();
+    }
+  }
+
+  num.textContent=((HOLD_MS/1000)*(1-progress)).toFixed(1);
+  num.style.color=progress>.66?'#ff8b76':'#eef1f7';
+  document.querySelector('.count').style.opacity = stage>=2?0:1;
+  clock.textContent = phase==='live'?mmss(now-connectedAt):'0:00';
+
+  const target=stage+(stage<2?progress:0);
+  reveal+=(target-reveal)*Math.min(1,dt/90);
+  prog.setAttribute('stroke-dashoffset',C*(1-progress));
+  const sy=meDown?4:26, py=youDown?-4:-26;
+  thumbS.setAttribute('transform','translate(0,'+sy+')'); thumbP.setAttribute('transform','translate(0,'+py+')');
+  thumbS.setAttribute('opacity',meDown?1:.18); thumbP.setAttribute('opacity',youDown?.85:.18);
+
+  if(mode==='demo'){ drawAvatar(now); applyMosaic(px,avCv,reveal,melt01,SW,SH); }
+  drawSelf();
+
+  let lv=0;
+  if(mode==='demo') lv = speaking ? .25+mouth*.75 : .04;
+  else if(analyser){analyser.getByteFrequencyData(adata);let s=0;for(let i=2;i<48;i++)s+=adata[i];lv=Math.min(1,s/48/120)}
+  drawVoice(now,lv);
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(t=>{last=t;tick(t)});
+
+/* ================= カメラ ================= */
+const withTimeout=(p,ms)=>Promise.race([p,new Promise((_,rj)=>setTimeout(()=>rj(new Error('カメラが返事をしません')),ms))]);
+async function initMedia(){
+  const s=await navigator.mediaDevices.getUserMedia({
+    video:{facingMode:'user',width:{ideal:640},height:{ideal:480}},
+    audio:{echoCancellation:true,noiseSuppression:true}});
+  camRaw.srcObject=s; await camRaw.play().catch(()=>{});
+  micTrack=s.getAudioTracks()[0];
+  const a=audio(), src=a.createMediaStreamSource(new MediaStream([micTrack]));
+  analyser=a.createAnalyser(); analyser.fftSize=512; adata=new Uint8Array(analyser.frequencyBinCount);
+  src.connect(analyser);
+  drawSelf();
+  let st=null;
+  try{ st=sendCv.captureStream(24); if(micTrack) st.addTrack(micTrack); }catch(e){}
+  return st;
+}
+function unlockVoice(){
+  audio();
+  if(window.speechSynthesis){ try{speechSynthesis.resume()}catch(e){} pickVoice();
+    try{ const u=new SpeechSynthesisUtterance(' '); u.volume=0; u.lang='ja-JP'; speechSynthesis.speak(u);}catch(e){} }
+}
+
+/* ================= ① ひとりで体験 ================= */
+$('mDemo').onclick=async()=>{
+  unlockVoice();
+  netmsg.textContent='カメラを開いています…';
+  try{ await withTimeout(initMedia(),5000); }catch(e){ netmsg.textContent='カメラなしで進みます'; }
+  startLive('demo');
+};
+
+/* ================= ②③ ほんとにつなぐ ================= */
+const PREFIX='oyayubi-2026-';
+const LOBBIES=6;
+function hookConn(c){
+  conn=c;
+  c.on('open',()=>{ if(busy){ try{c.send({t:'busy'});c.close()}catch(e){}; return; }
+    busy=true; netmsg.textContent='つながりました';
+    /* 待っていた側が長さを配る。ふたりの時計をそろえないと片方だけ先に顔が出る */
+    if(isHost) try{c.send({t:'cfg',fast:FAST,hold:HOLD_MS})}catch(e){}
+    if(phase!=='live') startLive('p2p'); });
+  c.on('data',d=>{
+    if(d.t==='th') youDown=!!d.d;
+    else if(d.t==='st'&&d.s>stage) advance();
+    else if(d.t==='cfg'){ FAST=d.fast||1; HOLD_MS=d.hold||7000; applySpeedUI(); }
+  });
+  c.on('close',()=>{ if(phase==='live'){ statusText.textContent='相手が切りました'; dot.className='dot'; } });
+}
+function bindCall(call){ call.on('stream',rs=>{
+  pRemote.srcObject=rs; pRemote.muted=false; pRemote.style.display='block';
+  pView.style.display='none'; pRemote.play().catch(()=>{}); }); }
+const newPeer=id=>new Promise((res,rej)=>{
+  const p=new Peer(id||undefined,{debug:0});
+  p.on('open',()=>res(p)); p.on('error',e=>{ try{p.destroy()}catch(_){}; rej(e); });
+});
+async function autoMatch(){
+  unlockVoice(); netmsg.textContent='カメラを開いています…';
+  let stream=null; try{ stream=await withTimeout(initMedia(),6000); }catch(e){}
+  for(let k=1;k<=LOBBIES;k++){
+    const id=PREFIX+'lobby'+k;
+    netmsg.textContent='待っている人をさがしています…（'+k+'/'+LOBBIES+'）';
+    try{
+      peer=await newPeer(id);                       /* 空いていた＝自分が待つ側 */
+      isHost=true; dot.className='dot wait'; netmsg.textContent='';
+      home.classList.add('hide'); phase='waiting';
+      statusText.textContent='誰かが来るのを待っています';
+      showVeil('待っています','誰かが「いま誰かとつながる」を押すと、ここにつながります',6000);
+      peer.on('connection',hookConn);
+      peer.on('call',call=>{ call.answer(stream); bindCall(call); });
+      return;
+    }catch(e){
+      if(e && e.type!=='unavailable-id'){ netmsg.textContent='つながりません（'+(e.type||e.message)+'）'; return; }
+      /* 誰か待っている → つなぎに行く */
+      try{
+        const p=await newPeer(null); peer=p;
+        const c=p.connect(id,{reliable:true});
+        const ok=await new Promise(r=>{ let done=false;
+          c.on('open',()=>{done=true;r(true)}); c.on('error',()=>{if(!done)r(false)});
+          setTimeout(()=>{if(!done)r(false)},4000); });
+        if(ok){ hookConn(c); bindCall(p.call(id,stream)); return; }
+        try{p.destroy()}catch(_){}
+      }catch(e2){}
+    }
+  }
+  netmsg.textContent='いっぱいでした。少し待ってもう一度押してください';
+}
+$('mLobby').onclick=autoMatch;
+$('mCode').onclick=()=>{ const b=$('codeBox');
+  b.style.display = b.style.display==='none'?'':'none';
+  if(b.style.display===''){ const code=String(Math.floor(1000+Math.random()*9000));
+    $('myCode').dataset.code=code; netmsg.textContent='自分が待つなら「入る」を空のまま押します'; } };
+$('btnJoin').onclick=async()=>{
+  unlockVoice();
+  const code=($('joinCode').value||'').trim();
+  let stream=null; try{ stream=await withTimeout(initMedia(),6000); }catch(e){}
+  if(!/^\d{4}$/.test(code)){                       /* 空 → 自分が部屋をつくる */
+    const mine=$('myCode').dataset.code||String(Math.floor(1000+Math.random()*9000));
+    try{ peer=await newPeer(PREFIX+mine); isHost=true;
+      $('myCode').style.display=''; $('myCode').textContent=mine;
+      netmsg.textContent='あいことば「'+mine+'」を相手に伝えてください';
+      dot.className='dot wait';
+      peer.on('connection',hookConn);
+      peer.on('call',call=>{ call.answer(stream); bindCall(call); });
+    }catch(e){ netmsg.textContent='その番号は使えませんでした'; }
+    return;
+  }
+  try{ const p=await newPeer(null); peer=p;
+    hookConn(p.connect(PREFIX+code,{reliable:true})); bindCall(p.call(PREFIX+code,stream));
+    netmsg.textContent='つないでいます…';
+  }catch(e){ netmsg.textContent='つながりませんでした'; }
+};
+
+/* ================= 無料ぶんの終わり ================= */
+$('wExtend').onclick=()=>{ $('wall').classList.remove('on'); fullAt=performance.now(); walled=false;
+  meltLab.textContent='延長中（仮）'; };
+$('wBye').onclick=()=>location.reload();
+$('nextBtn').onclick=()=>{ try{speechSynthesis.cancel()}catch(e){} location.reload(); };
+$('keepBtn').onclick=()=>{ bubble.innerHTML='<span class="who">'+HER.name+'</span>連絡先、交換しました。'; choices.innerHTML=''; };
+
+/* ================= 早送り ================= */
+function applySpeedUI(){
+  document.querySelectorAll('[data-fast]').forEach(x=>x.classList.toggle('on',+x.dataset.fast===FAST));
+  document.querySelectorAll('[data-sec]').forEach(x=>x.classList.toggle('on',+x.dataset.sec*1000===HOLD_MS));
+  const f=FREE()/1000;
+  $('freeLabel').textContent = f>=60 ? Math.round(f/60)+'分' : Math.round(f)+'秒';
+  num.textContent=(HOLD_MS/1000).toFixed(1);
+}
+$('devToggle').onclick=()=>$('dev').classList.toggle('open');
+document.querySelectorAll('[data-fast]').forEach(b=>b.onclick=()=>{ FAST=+b.dataset.fast; applySpeedUI(); });
+document.querySelectorAll('[data-sec]').forEach(b=>b.onclick=()=>{ HOLD_MS=+b.dataset.sec*1000; progress=0; applySpeedUI(); });
+applySpeedUI();
+</script>
+</body>
+</html>
