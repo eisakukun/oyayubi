@@ -33,7 +33,18 @@
   .step i{display:block;font-style:normal;font-size:14px;margin-bottom:1px;opacity:.9}
 
   .stage{position:relative;flex:1 1 auto;min-height:0;margin:8px 12px 0;border-radius:22px;
-    overflow:hidden;background:#000;border:1px solid var(--line)}
+    overflow:hidden;background:#000;border:1px solid var(--line);
+    touch-action:none;will-change:transform}
+  .skipbadge{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:7;
+    pointer-events:none;opacity:0;transition:opacity .12s;
+    border:3px solid var(--dim);color:var(--dim);border-radius:16px;padding:10px 22px;
+    font-size:20px;font-weight:900;letter-spacing:.18em;background:rgba(6,7,10,.55);
+    backdrop-filter:blur(4px);rotate:-8deg}
+  .swipehint{position:absolute;left:0;right:0;bottom:0;z-index:5;text-align:center;
+    font-size:11px;letter-spacing:.08em;color:#9aa3b6;padding:8px;pointer-events:none;
+    opacity:0;transition:opacity .5s;text-shadow:0 2px 10px #000}
+  .swipehint.on{opacity:1;animation:sway 2.4s ease-in-out infinite}
+  @keyframes sway{0%,100%{transform:translateX(0)}50%{transform:translateX(-10px)}}
   #pView,#pRemote{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000}
   #pRemote{display:none}
   #voice{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;transition:opacity .6s}
@@ -181,7 +192,8 @@
       ふたりで親指を <b>7秒</b> 合わせられたら、顔が<b>モザイク</b>で出る。<br>
       そこから <b>5分</b> 話すあいだに、モザイクは少しずつほどけていく。<br>
       最後にもう一度 <b>7秒</b>。そこで、ぜんぶ。<br>
-      <b style="color:var(--shu-soft)">指が合ったあとに離したら、その場で通話は終わります。</b>
+      <b style="color:var(--shu-soft)">7秒の途中で離したら、その場で終わり。</b><br>
+      7秒を越えたら手は自由。話してみて合わなければ、<b>横にスワイプで次の人へ</b>。
     </div>
   </div>
 
@@ -245,6 +257,8 @@
       <div class="bubble" id="bubble"></div>
       <div class="choices" id="choices"></div>
     </div>
+    <div class="skipbadge" id="skipBadge">スキップ</div>
+    <div class="swipehint" id="swipeHint">← 気に入らなければ、横にスワイプ →</div>
     <div class="veil" id="veil">
       <div><div class="big" id="veilBig"></div><div class="sub" id="veilSub"></div></div>
     </div>
@@ -373,20 +387,28 @@ let partnerWants=false, walled=false;
 let ritual=false, youLiftAt=0;   // 親指が合ってからは、離した時点で終わり
 
 /* ================= 仮の相手 ================= */
-const HER={name:'ミナミ',age:24,from:'福岡'};
+const PARTNERS=[
+  {name:'ミナミ',age:24,from:'福岡',hair:'#2c2321',skin:'#f3d4bd',cloth:'#4a4055',
+   bg:['#3b4260','#191d29'],pitch:1.12,hello:'もしもし…聞こえてる？'},
+  {name:'ハル',age:27,from:'札幌',hair:'#5a3a2a',skin:'#f6ddc8',cloth:'#3b5148',
+   bg:['#2f4a4a','#151f22'],pitch:0.96,hello:'あ、つながった。…えっと、どうも'},
+  {name:'ノゾミ',age:22,from:'大阪',hair:'#1e1c26',skin:'#eecfb6',cloth:'#5a3f4a',
+   bg:['#4b3550','#1d1622'],pitch:1.24,hello:'えー、ほんまに真っ暗やん。聞こえてる？'}
+];
+let pIndex=0, HER=PARTNERS[0];
 const avCv=document.createElement('canvas'), av=avCv.getContext('2d');
 avCv.width=SW; avCv.height=SH;
 function drawAvatar(t){
   const W=SW,H=SH;
   const g=av.createLinearGradient(0,0,0,H);
-  g.addColorStop(0,'#3b4260'); g.addColorStop(1,'#191d29');
+  g.addColorStop(0,HER.bg[0]); g.addColorStop(1,HER.bg[1]);
   av.fillStyle=g; av.fillRect(0,0,W,H);
   av.save(); av.translate(Math.sin(t/2300)*3,Math.sin(t/1700)*2);
-  const cx=W/2, cy=H*0.46, fw=W*0.15, fh=H*0.205, HAIR='#2c2321';
-  av.fillStyle='#4a4055'; av.beginPath(); av.ellipse(cx,H*1.16,W*0.40,H*0.36,0,0,7); av.fill();
+  const cx=W/2, cy=H*0.46, fw=W*0.15, fh=H*0.205, HAIR=HER.hair;
+  av.fillStyle=HER.cloth; av.beginPath(); av.ellipse(cx,H*1.16,W*0.40,H*0.36,0,0,7); av.fill();
   av.fillStyle='#e3b89e'; av.fillRect(cx-fw*0.33,cy+fh*0.52,fw*0.66,fh*0.7);
   av.fillStyle=HAIR; av.beginPath(); av.ellipse(cx,cy+fh*0.16,fw*1.3,fh*1.18,0,0,7); av.fill();
-  av.fillStyle='#f3d4bd'; av.beginPath(); av.ellipse(cx,cy,fw,fh,0,0,7); av.fill();
+  av.fillStyle=HER.skin; av.beginPath(); av.ellipse(cx,cy,fw,fh,0,0,7); av.fill();
   av.fillStyle=HAIR; av.beginPath();
   av.moveTo(cx-fw*1.07,cy-fh*0.08);
   av.quadraticCurveTo(cx-fw*1.12,cy-fh*1.06,cx,cy-fh*1.04);
@@ -480,7 +502,7 @@ function say(text,done){
   if(window.speechSynthesis&&jaVoice){
     try{speechSynthesis.cancel()}catch(e){}
     const u=new SpeechSynthesisUtterance(text.replace(/[…、]/g,'、'));
-    u.lang='ja-JP'; u.voice=jaVoice; u.rate=1.02; u.pitch=1.12;
+    u.lang='ja-JP'; u.voice=jaVoice; u.rate=1.02; u.pitch=HER.pitch;
     u.onend=fin; u.onerror=fin; speechSynthesis.speak(u);
     setTimeout(fin,1200+text.length*220);
   }else setTimeout(fin,900+text.length*130);
@@ -506,7 +528,7 @@ let line=0;
 function step(){
   const L=SCRIPT[line]; if(!L)return;
   choices.innerHTML='';
-  say(L.say,()=>{ if(L.unlock){callPad();return} if(L.end){finish();return} showChoices(L.c); });
+  say(line===0?HER.hello:L.say,()=>{ if(L.unlock){callPad();return} if(L.end){finish();return} showChoices(L.c); });
 }
 function showChoices(list){
   choices.innerHTML='';
@@ -542,6 +564,7 @@ function startLive(kind){
   connectedAt=performance.now(); stageAt=connectedAt;
   dot.className='dot live'; statusText.textContent='つながりました';
   padwrap.className='padwrap locked'; stateText.textContent='いまは、声だけ';
+  swipeHint.classList.remove('on'); skipBadge.style.opacity=0;
   buzz(20); chime(); paintStage(); showVeil(COPY[0].big,COPY[0].sub,2600);
   if(mode==='demo') setTimeout(step,2000);
   else openGate();                        /* 本物どうしは最初から押せる */
@@ -550,10 +573,15 @@ function openGate(){
   if(gateOpen||stage>=2)return;
   gateOpen=true; padwrap.classList.remove('locked'); pad.classList.add('call');
   chime(); buzz([15,40,15]);
+  if(stage===1){                       /* 5分たった＝ここで決める */
+    showVeil('どうする？','ぜんぶ見せるなら親指を7秒。ちがうなら、横にスワイプ',3000);
+    swipeHint.classList.add('on');
+  }
 }
 function advance(){
   if(stage>=2)return;
   stage++; progress=0; meDown=youDown=false; partnerWants=false; ritual=false; youLiftAt=0;
+  swipeHint.classList.remove('on');
   gateOpen=false; pad.classList.remove('call'); padwrap.classList.add('locked');
   stageAt=performance.now();
   flash.classList.remove('go'); void flash.offsetWidth; flash.classList.add('go');
@@ -595,18 +623,95 @@ function setDown(v){
   if(conn&&conn.open) try{conn.send({t:'th',d:v?1:0})}catch(e){}
   if(mode==='demo'&&v) pad.classList.remove('call');
 }
+let padPid=null;                 /* 親指がどの指か覚えておく */
 pad.addEventListener('pointerdown',e=>{
   e.preventDefault(); if(phase!=='live'||!gateOpen||stage>=2)return;
   try{pad.setPointerCapture(e.pointerId)}catch(_){}
+  padPid=e.pointerId;
   setDown(true); audio(); buzz(12);
   pad.classList.remove('press'); void pad.offsetWidth; pad.classList.add('press');
 });
-['pointerup','pointercancel'].forEach(ev=>pad.addEventListener(ev,()=>setDown(false)));
-window.addEventListener('blur',()=>setDown(false));
-window.addEventListener('pointerup',()=>setDown(false));
-window.addEventListener('pointercancel',()=>setDown(false));
+/* 別の指で画面をさわって離しても、親指が離れたことにはしない */
+function padRelease(e){
+  if(padPid!==null && e && e.pointerId!==undefined && e.pointerId!==padPid) return;
+  padPid=null; setDown(false);
+}
+['pointerup','pointercancel'].forEach(ev=>pad.addEventListener(ev,padRelease));
+window.addEventListener('pointerup',padRelease);
+window.addEventListener('pointercancel',padRelease);
+window.addEventListener('blur',()=>{ padPid=null; setDown(false); });
 pad.addEventListener('contextmenu',e=>e.preventDefault());
 pad.addEventListener('touchstart',e=>e.preventDefault(),{passive:false});
+
+/* ================= スワイプでスキップ ================= */
+const stageEl=document.querySelector('.stage'), skipBadge=$('skipBadge'), swipeHint=$('swipeHint');
+let sw={on:false,x0:0,y0:0,dx:0,id:null,locked:false};
+function swReset(anim){
+  stageEl.style.transition = anim?'transform .22s cubic-bezier(.2,1.4,.4,1)':'none';
+  stageEl.style.transform='translateX(0)'; skipBadge.style.opacity=0;
+  skipBadge.style.transform='translate(-50%,-50%)';
+}
+stageEl.addEventListener('pointerdown',e=>{
+  if(phase!=='live'||ritual) return;
+  if(e.target.closest('button')) return;
+  sw.on=true; sw.locked=false; sw.x0=e.clientX; sw.y0=e.clientY; sw.dx=0; sw.id=e.pointerId;
+  stageEl.style.transition='none';
+});
+stageEl.addEventListener('pointermove',e=>{
+  if(!sw.on||e.pointerId!==sw.id) return;
+  const dx=e.clientX-sw.x0, dy=e.clientY-sw.y0;
+  if(!sw.locked){
+    if(Math.abs(dx)<8&&Math.abs(dy)<8) return;
+    if(Math.abs(dy)>Math.abs(dx)){ sw.on=false; return; }   /* 縦の動きは無視 */
+    sw.locked=true;
+  }
+  sw.dx=dx;
+  const k=Math.max(-1,Math.min(1,dx/150));
+  stageEl.style.transform='translateX('+(dx*0.92).toFixed(1)+'px) rotate('+(k*4).toFixed(2)+'deg)';
+  skipBadge.style.opacity=Math.min(1,Math.abs(k)*1.2);
+  /* カードと一緒に流れて画面から出ないよう、少し踏みとどまらせる */
+  skipBadge.style.transform='translate(-50%,-50%) translateX('+(-dx*0.5).toFixed(1)+'px)';
+  skipBadge.style.borderColor = Math.abs(dx)>120 ? '#e2483a' : '#8b93a7';
+  skipBadge.style.color = Math.abs(dx)>120 ? '#ff8b76' : '#8b93a7';
+});
+function swEnd(e){
+  if(!sw.on) return; sw.on=false;
+  if(Math.abs(sw.dx)>120 && phase==='live') skipPartner(sw.dx<0?-1:1);
+  else swReset(true);
+}
+stageEl.addEventListener('pointerup',swEnd);
+stageEl.addEventListener('pointercancel',swEnd);
+stageEl.addEventListener('pointerleave',swEnd);
+
+function skipPartner(dir){
+  if(phase!=='live')return;
+  phase='skipping'; ritual=false; meDown=youDown=false;
+  try{ speechSynthesis.cancel(); }catch(e){} speaking=false; choices.innerHTML='';
+  swipeHint.classList.remove('on');
+  stageEl.style.transition='transform .3s ease-in, opacity .3s';
+  stageEl.style.transform='translateX('+(dir*window.innerWidth*1.1)+'px) rotate('+(dir*9)+'deg)';
+  stageEl.style.opacity='0';
+  cutSound(); buzz(30);
+  setTimeout(nextPartner,320);
+}
+function nextPartner(){
+  skipBadge.style.opacity=0;
+  stageEl.style.transition='none'; stageEl.style.transform='translateX(0)'; stageEl.style.opacity='1';
+  if(mode==='demo'){
+    pIndex=(pIndex+1)%PARTNERS.length; HER=PARTNERS[pIndex];
+    statusText.textContent='次の人をさがしています…';
+    bubble.innerHTML=''; melt.classList.remove('on'); stamp.classList.remove('go');
+    setTimeout(()=>startLive('demo'),700);
+  }else{
+    try{ if(conn&&conn.open) conn.send({t:'bye'}); }catch(e){}
+    try{ peer&&peer.destroy(); }catch(e){}
+    conn=null; peer=null; busy=false; isHost=false; phase='home';
+    melt.classList.remove('on'); stamp.classList.remove('go'); bubble.innerHTML='';
+    home.classList.remove('hide');
+    netmsg.textContent='次の人をさがします';
+    setTimeout(autoMatch,400);
+  }
+}
 
 /* ================= 声の輪 ================= */
 const vctx=voice.getContext('2d'); let ripples=[];
@@ -710,7 +815,9 @@ requestAnimationFrame(t=>{last=t;tick(t)});
 
 /* ================= カメラ ================= */
 const withTimeout=(p,ms)=>Promise.race([p,new Promise((_,rj)=>setTimeout(()=>rj(new Error('カメラが返事をしません')),ms))]);
+let myStream=null;
 async function initMedia(){
+  if(myStream) return myStream;
   const s=await navigator.mediaDevices.getUserMedia({
     video:{facingMode:'user',width:{ideal:640},height:{ideal:480}},
     audio:{echoCancellation:true,noiseSuppression:true}});
@@ -722,7 +829,7 @@ async function initMedia(){
   drawSelf();
   let st=null;
   try{ st=sendCv.captureStream(24); if(micTrack) st.addTrack(micTrack); }catch(e){}
-  return st;
+  myStream=st; return st;
 }
 function unlockVoice(){
   audio();
